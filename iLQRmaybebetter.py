@@ -13,22 +13,20 @@ dt = 0.01 # step size
 nT = 1000 # time steps
 # now we create a function that models the pendulum
 
-# Pendulum dynamics function
+# pendulum dynamics
 def pendulum_dynamics(x, u):
     theta, theta_dot = x
     theta_ddot = (g / l * jnp.sin(theta) - mu / (m * l**2) * theta_dot + 1 / (m * l**2) * u)
     return jnp.array([theta_dot, theta_ddot])
 pendulum_dynamics = jax.jit(pendulum_dynamics)
 
-# Runge-Kutta 4th order method
+# RK4
 def f(x, u, dt):
     k1 = pendulum_dynamics(x, u)
     k2 = pendulum_dynamics(x + 0.5 * k1 * dt, u)
     k3 = pendulum_dynamics(x + 0.5 * k2 * dt, u)
     k4 = pendulum_dynamics(x + k3 * dt, u)
     return x + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
-
-
 f = jax.jit(f)
 
 # define variables
