@@ -62,8 +62,8 @@ R = 1e-5 # scenario dependent
 S = S.at[-1,:,:].set(Q_f)
 
 # initial cost
-cost = 0.5 * (x[:, -1] - x_star).T @ Q_f @ (x[:, -1] - x_star) + 0.5 * jnp.sum(jnp.einsum('ij,jk,ik->i', x.T, Q, x.T)) + 0.5 * jnp.sum(u**2 * R)
-
+#cost = 0.5 * (x[:, -1] - x_star).T @ Q_f @ (x[:, -1] - x_star) + 0.5 * jnp.sum(jnp.einsum('ij,jk,ik->i', x.T, Q, x.T)) + 0.5 * jnp.sum(u**2 * R)
+cost = 0.5 * (x[0,-1]**2 + x[1,-1**2]) + 0.5 * jnp.sum(R * u * u)
 # begin iterating (something is wrong here)
 for i in range(maxit):
 
@@ -96,7 +96,9 @@ for i in range(maxit):
 
     # check cost
 
-    cost = 0.5 * (x[:, -1] - x_star).T @ Q_f @ (x[:, -1] - x_star) + 0.5 * jnp.sum(jnp.einsum('ij,jk,ik->i', x.T, Q, x.T)) + 0.5 * jnp.sum(u**2 * R)
+    #cost = 0.5 * (x[:, -1] - x_star).T @ Q_f @ (x[:, -1] - x_star) + 0.5 * jnp.sum(jnp.einsum('ij,jk,ik->i', x.T, Q, x.T)) + 0.5 * jnp.sum(u**2 * R)
+    cost = 0.5 * (x[0,-1]**2 + x[1,-1**2]) + 0.5 * jnp.sum(R * u * u)
+
     if jnp.abs((cost - cost_old) / cost_old) < threshold:
         break
     
