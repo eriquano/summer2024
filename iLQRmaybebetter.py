@@ -12,12 +12,12 @@ m = length = 1 # mass and length of bob, pendulum
 mu = 0.01 # friction coeff
 dt = 0.01 # step size
 nT = 1000 # time steps
-maxit = 100 # allowed number of times to optimize
+maxit = 50 # allowed number of times to optimize
 lambda_factor = 10
 lamb = 1. # for LM heuristic
 lamb_max = 1000
 r = 1e-5 # input cost
-convergence_num = 1e-5 # threshold for convergence
+convergence_num = 1e-6 # threshold for convergence
 
 # now we create a function that models the pendulum
 
@@ -86,12 +86,12 @@ target = jnp.array((jnp.pi,0)) # target state - straight up
 states = X.shape[0]
 controls = 1
 
-#initial and boundary condition
+#initial condition
 x0 = jnp.array((0,1))
 
 
 #-------------ILQR BEGINS HERE-------------#
-for _ in range(maxit):
+for k in range(maxit):
 
     # forward pass using current control sequence
     X, cost = simulate(x0,X,U)
@@ -110,8 +110,8 @@ for _ in range(maxit):
 
     # compute jacobians
     for i in range(nT-1):
-        f_x = f_x.at[i].set(jit(jacfwd(f,0))(X[:,i], U[i], dt))
-        f_u = f_u.at[i].set(jnp.expand_dims(jit(jacfwd(f,1))(X[:,i], U[i], dt), axis = -1))
+        f_x = f_x.at[i].set(dt * jit(jacfwd(f,0))(X[:,i], U[i], dt))
+        f_u = f_u.at[i].set(dt * jnp.expand_dims(jit(jacfwd(f,1))(X[:,i], U[i], dt), axis = -1))
         l = l.at[i].set(dt * run_cost(X[:,i],U[i]))
         l_x = l_x.at[i].set(dt * jit(jacfwd(run_cost,0))(X[:,i], U[i]))
         l_xx = l_xx.at[i].set(dt * jit(jacfwd(jacfwd(run_cost,0),0))(X[:,i], U[i]))
@@ -190,26 +190,49 @@ for _ in range(maxit):
         lamb *= lambda_factor
         if lamb > lamb_max:
             break
-
+    
 
 
 
 # animation function
 def animate(i):
-    theta = X[0, i]  # angle in radians
-    x_pos = length* jnp.sin(theta)
-    y_pos = length * jnp.cos(theta)
-    line.set_data([0, x_pos], [0, y_pos])
+    line.set_data([0, length * jnp.sin(X[0, i])], [0, -length * jnp.cos(X[0, i])])
     return line,
-animate = jit(animate)
 
-# set up the figure, the axis, and the plot element
+# setup plot
 fig, ax = plt.subplots()
-ax.set_xlim(-length- 0.1, length + 0.1)
-ax.set_ylim(-length - 0.1, length + 0.1)
+ax.set_xlim(-length * 1.5, length * 1.5)
+ax.set_ylim(-length * 1.5, length * 1.5)
 line, = ax.plot([], [], 'o-', lw=2)
 
-# call the animator
-ani = FuncAnimation(fig, animate, frames=nT, interval=20, blit=True)
-print(X[0,:])
+# create animation
+anim = FuncAnimation(fig, animate, frames=nT, interval=dt*1000, blit=True)
 plt.show()
+anim.save('pendulum_animation.mp4',writer = 'ffmpeg',fps=30)
+
+
+
+print(X)
+print(U)
+
+
+
+# # old animation function
+# def animate(i):
+#     theta = X[0, i]  # angle in radians
+#     x_pos = length* jnp.sin(theta)
+#     y_pos = length * jnp.cos(theta)
+#     line.set_data([0, x_pos], [0, y_pos])
+#     return line,
+# animate = jit(animate)
+
+# # set up the figure, the axis, and the plot element
+# fig, ax = plt.subplots()
+# ax.set_xlim(-length- 0.1, length + 0.1)
+# ax.set_ylim(-length - 0.1, length + 0.1)
+# line, = ax.plot([], [], 'o-', lw=2)
+
+# # call the animator
+# ani = FuncAnimation(fig, animate, frames=nT, interval=20, blit=True)
+# print(X[0,:])
+# plt.show()
