@@ -39,7 +39,8 @@ target = jnp.array((jnp.pi,0)) # target state - straight up
 
 
 #initial and boundary condition
-x = x.at[:,0].set(jnp.array((0, 1))) # initial state
+x0 = jnp.array((0,1))
+X = X.at[:,0].set(x0) # initial state
 
 for _ in range(maxit):
 
