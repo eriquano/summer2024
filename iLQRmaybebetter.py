@@ -11,6 +11,9 @@ m = l = 1 # mass and length of bob, pendulum
 mu = 0.01 # friction coeff
 dt = 0.01 # step size
 nT = 1000 # time steps
+maxit = 50 # allowed number of times to optimize
+r = 1e-5 # input cost
+
 # now we create a function that models the pendulum
 
 # pendulum dynamics
@@ -30,12 +33,19 @@ def f(x, u, dt):
 f = jax.jit(f)
 
 # define variables
-u = jnp.zeros((nT))
-x = jnp.zeros((2,nT))
+U = jnp.zeros((nT)) # input sequence (u_k for all k)
+X = jnp.zeros((2,nT)) # state trajectory (x_k for all k)
+target = jnp.array((jnp.pi,0)) # target state - straight up
+
+
+#initial and boundary condition
 x = x.at[:,0].set(jnp.array((0, 1))) # initial state
 
-for i in range(0,nT-1):
-    x = x.at[:,i+1].set(f(x[:,i], u[i],dt)) # simulate state
+for _ in range(maxit):
+
+
+    for i in range(0,nT-1):
+        x = x.at[:,i+1].set(f(x[:,i], u[i],dt)) # simulate state
 
 
 
@@ -57,7 +67,7 @@ for i in range(0,nT-1):
 
 
 
-# Animation function
+# animation function
 def animate(i):
     theta = x[0, i]  # angle in radians
     x_pos = l * jnp.sin(theta)
@@ -65,13 +75,13 @@ def animate(i):
     line.set_data([0, x_pos], [0, y_pos])
     return line,
 
-# Set up the figure, the axis, and the plot element
+# set up the figure, the axis, and the plot element
 fig, ax = plt.subplots()
 ax.set_xlim(-l - 0.1, l + 0.1)
 ax.set_ylim(-l - 0.1, l + 0.1)
 line, = ax.plot([], [], 'o-', lw=2)
 
-# Call the animator
+# call the animator
 ani = FuncAnimation(fig, animate, frames=nT, interval=20, blit=True)
 print(x[0,:])
 plt.show()
