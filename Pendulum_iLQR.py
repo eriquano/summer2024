@@ -12,10 +12,10 @@ m = length = 1 # mass and length of bob, pendulum
 mu = 0.01 # friction coeff
 dt = 0.01 # step size
 nT = 1000 # time steps
-maxit = 50 # allowed number of times to optimize
-lambda_factor = 10
-lamb = 1. # for LM heuristic
-lamb_max = 1000
+maxit = 100 # allowed number of times to optimize
+lambda_factor = 10.
+lamb = 1.0 # for LM heuristic
+lamb_max = 1000.
 r = 1e-5 # input cost
 convergence_num = 1e-6 # threshold for convergence
 
@@ -40,6 +40,20 @@ f = jit(f)
 # function that calculates immediate cost
 def run_cost(x,u):
     l = jnp.sum(u**2) # example cost func - control is punished
+
+    wp = 1e4 # final position cost weight
+    wv = 1e4 # final velocity cost weight
+    theta = x[0]  # angle in radians
+    x_pos = length * jnp.sin(theta)
+    y_pos = length * jnp.cos(theta)
+
+    target_theta = target[0]  # angle in radians
+    target_x_pos = length * jnp.sin(target_theta)
+    target_y_pos = length * jnp.cos(target_theta)
+    pos_err = jnp.array([x_pos - target_x_pos,
+                         y_pos - target_y_pos])
+
+    l += (wp * jnp.sum(pos_err**2) + wv * (x[1]-target[1])**2)
 
     return l
 run_cost = jit(run_cost)
@@ -67,11 +81,16 @@ def simulate(x0,X,U_in):
     X = X.at[:,0].set(x0)
     cost = 0
 
-    # simulate trajectory using current control sequence
-    for i in range(nT-1):
-        X = X.at[:,i+1].set(f(X[:,i], U_in[i],dt)) # simulate state
-        l = run_cost(X[:,i], U_in[i])
+    def body_fun(i, carry): # computing function that is passed to fori_loop
+        X, cost = carry
+        X = X.at[:, i+1].set(f(X[:, i], U_in[i], dt))  
+        l = run_cost(X[:, i], U_in[i])
         cost += dt * l
+        return X, cost
+
+    initial_carry = (X, cost)
+    X, cost = jax.lax.fori_loop(0, nT-1, body_fun, initial_carry) # simulate state w/ lax loop
+
     # add final cost to running cost
     l_f = final_cost(X[:,-1])
     cost += l_f
@@ -87,7 +106,7 @@ states = X.shape[0]
 controls = 1
 
 #initial condition
-x0 = jnp.array((0,1))
+x0 = jnp.array((3*jnp.pi/2,0)) # your choice
 
 
 #-------------ILQR BEGINS HERE-------------#
@@ -108,8 +127,9 @@ for k in range(maxit):
     l_uu = jnp.zeros((nT,controls, controls))
     l_ux = jnp.zeros((nT, controls, states))
 
-    # compute jacobians
-    for i in range(nT-1):
+    # compute jacobians with lax loop
+    def body_fun(i, carry):
+        f_x, f_u, l, l_x, l_xx, l_u, l_uu, l_ux = carry
         f_x = f_x.at[i].set(dt * jit(jacfwd(f,0))(X[:,i], U[i], dt))
         f_u = f_u.at[i].set(dt * jnp.expand_dims(jit(jacfwd(f,1))(X[:,i], U[i], dt), axis = -1))
         l = l.at[i].set(dt * run_cost(X[:,i],U[i]))
@@ -118,6 +138,11 @@ for k in range(maxit):
         l_u = l_u.at[i].set(dt * jit(jacfwd(run_cost,1))(X[:,i], U[i]))
         l_uu = l_uu.at[i].set(dt * jit(jacfwd(jacfwd(run_cost,1),1))(X[:,i], U[i]))
         l_ux = l_ux.at[i].set(dt * jit(jacfwd(jacfwd(run_cost,1),0))(X[:,i], U[i]))
+        return f_x, f_u, l, l_x, l_xx, l_u, l_uu, l_ux 
+    
+    initial_carry = (f_x, f_u, l, l_x, l_xx, l_u, l_uu, l_ux)
+    f_x, f_u, l, l_x, l_xx, l_u, l_uu, l_ux = jax.lax.fori_loop(0, nT-1, body_fun, initial_carry)
+
     # make sure to include final values
     l = l.at[-1].set(final_cost(X[:,-1]))
     l_x = l_x.at[-1].set(jit(jacfwd(final_cost))(X[:,-1]))
@@ -192,8 +217,6 @@ for k in range(maxit):
             break
     
 
-
-
 # animation function
 def animate(i):
     line.set_data([0, length * jnp.sin(X[0, i])], [0, -length * jnp.cos(X[0, i])])
@@ -208,31 +231,8 @@ line, = ax.plot([], [], 'o-', lw=2)
 # create animation
 anim = FuncAnimation(fig, animate, frames=nT, interval=dt*1000, blit=True)
 plt.show()
-anim.save('pendulum_animation.mp4',writer = 'ffmpeg',fps=30)
+anim.save('pendulum_animation.mp4',writer = 'ffmpeg',fps=60)
 
 
 
-print(X)
-print(U)
 
-
-
-# # old animation function
-# def animate(i):
-#     theta = X[0, i]  # angle in radians
-#     x_pos = length* jnp.sin(theta)
-#     y_pos = length * jnp.cos(theta)
-#     line.set_data([0, x_pos], [0, y_pos])
-#     return line,
-# animate = jit(animate)
-
-# # set up the figure, the axis, and the plot element
-# fig, ax = plt.subplots()
-# ax.set_xlim(-length- 0.1, length + 0.1)
-# ax.set_ylim(-length - 0.1, length + 0.1)
-# line, = ax.plot([], [], 'o-', lw=2)
-
-# # call the animator
-# ani = FuncAnimation(fig, animate, frames=nT, interval=20, blit=True)
-# print(X[0,:])
-# plt.show()
