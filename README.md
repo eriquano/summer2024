@@ -1,4 +1,2 @@
 # summer2024
-
-iLQR attempt is still very WIP. Looking for any and all feedback.
-implementation based off of the paper by Li and Todorov
+Learned about LQR and iLQR within a week and created the iLQR script for a pendulum. Implementation based off of this guide: https://studywolf.wordpress.com/2016/02/03/the-iterative-linear-quadratic-regulator-method/, along with the Tassa and Li papers.
