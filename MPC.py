@@ -12,6 +12,8 @@ import matplotlib.animation as ani
 
 # first define a system to test MPC. we will use mass-spring damper from aleksandar habar's example
 
+# note: this code does not apply generally. small modifications need to be made to the weight/O,M matrices to handle MIMO
+
 # system parameters
 m1 = 20
 m2 = 20
@@ -26,6 +28,7 @@ C = jnp.array([[1, 0, 0, 0]])
 
 # discretize system (backwards euler)
 states = Ac.shape[0]
+inputs = Bc.shape[1]
 dt = 0.01
 A = jnp.linalg.inv(jnp.eye(states) - dt * Ac)
 B = dt * jnp.dot(A, Bc)
@@ -69,18 +72,59 @@ tempA = jnp.copy(A)
 for i in range(C_rows * f):
     tempA = jnp.linalg.matrix_power(tempA,i)
     O = O.at[i,:].set(jnp.squeeze(jnp.dot(C,tempA)))
-    
 
+'''check this'''
 
-print(O)
-M = jnp.zeros((C_rows*f))
+M = jnp.zeros((C_rows * f, v * inputs))            
+# start with elements until control horizon
+for i in range(C_rows * f):
+    if (i < v):
+        for j in range(i+1):
+            if j == 0:
+                exp = jnp.eye(states)
+            else:
+                exp = jnp.dot(exp, A)
+            M = M.at[i, i-j].set(jnp.dot(C, jnp.dot(exp,B)).item())
+    else: # elements from control horizon to prediction horizon
+        for j in range(v):
+            if j==0: # last element
+                A_bar = jnp.zeros((states, states))
+                for k in range(i-v+2):
+                    if k == 0:
+                        exp = jnp.eye(states)
+                    else:
+                        exp = jnp.dot(exp,A)
+                    A_bar += exp  # sum over elements in A_bar (A^f-v + A^f-v-1 and so on...)
+                M = M.at[i, v-1].set(jnp.dot(C, jnp.dot(A_bar,B)).item())
+            else:
+                exp = jnp.dot(exp,A)
+                M = M.at[i, v-j-1].set(jnp.dot(C, jnp.dot(exp,B)).item())
 
+# now we need to define weight matrices W1 - W4
 
+W1 = jnp.zeros((v * inputs, v * inputs))
+W1 = W1.at[0,0].set(jnp.eye(inputs).item())
+for i in range(1, v):
+    W1 = W1.at[i, i].set(jnp.eye(inputs).item())
+    W1 = W1.at[i, i-1].set(-jnp.eye(inputs).item())
 
+Q0 = 0.0000000011
+Q_else = 0.0001 #taken from the guide. these are user selected
+W2 = jnp.zeros((v * inputs, v * inputs))
+Q_diag = Q_else * jnp.ones(v * inputs)
+Q_diag = Q_diag.at[0].set(Q0)
+W2 = W2.at[jnp.diag_indices(v * inputs)].set(Q_diag)
 
+W3 = jnp.dot(jnp.dot(W1.T,W2), W1)
 
+W4 = jnp.zeros((f * C_rows,f * C_rows))
+P = 10 # from guide, user selected
+P_diag = P * jnp.ones(f * C_rows)
+W4 = W4.at[jnp.diag_indices(f * C_rows)].set(P_diag)
 
-
+# define desired trajectory
+time = jnp.linspace(0,100,t)
+trajectory = jnp.ones(t) - jnp.exp(-0.01*time)
 
 
 
