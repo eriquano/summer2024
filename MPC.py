@@ -29,51 +29,67 @@ C = jnp.array([[1, 0, 0, 0]])
 # discretize system (backwards euler)
 states = Ac.shape[0]
 inputs = Bc.shape[1]
-dt = 0.01
+dt = 0.1 # length of time step
 A = jnp.linalg.inv(jnp.eye(states) - dt * Ac)
 B = dt * jnp.dot(A, Bc)
 
 # now we have x[k] = Ax[k-1] + Bu[k-1]
 
 # generate initial state and input
-t = 100
+t = 300 # total time
 x0 = jnp.zeros((states, 1))
-u = 10*jnp.ones((1,t))
 
-# initialize matrix of states and matrix of outputs
-X = jnp.zeros((states,t))
-Y = jnp.zeros((C.shape[0], t))
+# define desired trajectory. here we will use exponential
+timeArray = jnp.linspace(0,t, int(t/dt)+1)
+#trajectory = jnp.ones(int(t/dt)+1) - jnp.exp(-0.01*timeArray) 
+
+trajectory = jnp.zeros((len(timeArray)))
+trajectory = trajectory.at[0:1000].set(jnp.ones(1000)) #pulse trajectory option for fun
+trajectory = trajectory.at[2001:].set(jnp.ones(1000))
 
 
-# simulation function
+# arrays to store states, inputs and outputs over at each step
+X = jnp.zeros((states,len(timeArray)))
+X = X.at[:,0].set(x0.flatten())
+Y = jnp.zeros((C.shape[0], len(timeArray)))
+Y= Y.at[:,0].set(jnp.dot(C,x0).flatten())
+U = jnp.zeros((inputs,len(timeArray)))
 
-def simulate(A, B, C, X, Y, x0, u):
-    time = u.shape[1]
-    X = X.at[:,0].set(x0.flatten())
-    Y = Y.at[:,0].set(jnp.dot(C,x0).flatten())
-
-    for i in range(1,time):
-        X = X.at[:,i].set(jnp.dot(A,X[:,i-1]) + jnp.dot(B, u[:,i-1]).flatten())
-        Y = Y.at[:,i].set(jnp.dot(C,X[:,i]).flatten())
-
-    return X, Y
-simulate = jit(simulate)
-
-# now let's get to the real MPC stuff
-
+# create weight matrices
 f = 20 # prediction horizon
 v = 20 # control horizon (where u changes)
-
-# need to form lifted matrices O and M
 C_rows = C.shape[0]
+
+W1 = jnp.zeros((v * inputs, v * inputs))
+W1 = W1.at[0,0].set(jnp.eye(inputs).item())
+for i in range(1, v):
+    W1 = W1.at[i, i].set(jnp.eye(inputs).item())
+    W1 = W1.at[i, i-1].set(-jnp.eye(inputs).item())
+
+Q0 = 0.0000000011
+Q_else = 0.0001 #taken from the guide. these are user selected
+W2 = jnp.zeros((v * inputs, v * inputs))
+Q_diag = Q_else * jnp.ones(v * inputs)
+Q_diag = Q_diag.at[0].set(Q0)
+W2 = W2.at[jnp.diag_indices(v * inputs)].set(Q_diag)
+
+W3 = jnp.dot(jnp.dot(W1.T,W2), W1)
+
+W4 = jnp.zeros((f * C_rows,f * C_rows))
+P = 10 # from guide, user selected
+P_diag = P * jnp.ones(f * C_rows)
+W4 = W4.at[jnp.diag_indices(f * C_rows)].set(P_diag)
+
+# lifted matrix O
+O=jnp.zeros(shape=(f*C_rows,states))
+
+# create lifted matrices
 O = jnp.zeros((C_rows * f, states))
-tempA = jnp.copy(A)
 
-for i in range(C_rows * f):
-    tempA = jnp.linalg.matrix_power(tempA,i)
-    O = O.at[i,:].set(jnp.squeeze(jnp.dot(C,tempA)))
+for i in range(1, C_rows * f + 1):
+    tempA = jnp.linalg.matrix_power(A,i)
+    O = O.at[i-1,:].set(jnp.reshape(jnp.dot(C,tempA),(states,)))
 
-'''check this'''
 
 M = jnp.zeros((C_rows * f, v * inputs))            
 # start with elements until control horizon
@@ -100,64 +116,59 @@ for i in range(C_rows * f):
                 exp = jnp.dot(exp,A)
                 M = M.at[i, v-j-1].set(jnp.dot(C, jnp.dot(exp,B)).item())
 
-# now we need to define weight matrices W1 - W4
 
-W1 = jnp.zeros((v * inputs, v * inputs))
-W1 = W1.at[0,0].set(jnp.eye(inputs).item())
-for i in range(1, v):
-    W1 = W1.at[i, i].set(jnp.eye(inputs).item())
-    W1 = W1.at[i, i-1].set(-jnp.eye(inputs).item())
+# calculate gain matrix that minimizes J
+K = jnp.dot(jnp.dot(jnp.linalg.inv(jnp.dot(jnp.dot(M.T,W4),M) + W3), M.T), W4)
 
-Q0 = 0.0000000011
-Q_else = 0.0001 #taken from the guide. these are user selected
-W2 = jnp.zeros((v * inputs, v * inputs))
-Q_diag = Q_else * jnp.ones(v * inputs)
-Q_diag = Q_diag.at[0].set(Q0)
-W2 = W2.at[jnp.diag_indices(v * inputs)].set(Q_diag)
+# function to propagate dynamics after every step
 
-W3 = jnp.dot(jnp.dot(W1.T,W2), W1)
+def dynamics(x,u):
+    xnext = jnp.reshape(jnp.dot(A,x),shape=(states,inputs)) + jnp.dot(B,u)
+    ynext = jnp.dot(C,x)
+    return xnext, ynext
 
-W4 = jnp.zeros((f * C_rows,f * C_rows))
-P = 10 # from guide, user selected
-P_diag = P * jnp.ones(f * C_rows)
-W4 = W4.at[jnp.diag_indices(f * C_rows)].set(P_diag)
+#----------MPC LOOP----------#
 
-# define desired trajectory
-time = jnp.linspace(0,100,t)
-trajectory = jnp.ones(t) - jnp.exp(-0.01*time)
+for i in range(len(timeArray)-f):
+    # first establish the trajectory over the control horizon
+    desiredTraj = trajectory[i:i+f]
 
+    # compute s (diff between desired and actual trajectory)
+    s = desiredTraj - jnp.dot(O,X[:,i])
 
+    # compute control sequence
+    sequence = jnp.dot(K, s)
 
+    # apply first entry of sequence to state and propagate dynamics
+    xnext, ynext = dynamics(X[:,i], sequence[0])
 
+    #update next time step values
+    X = X.at[:,i+1].set(xnext.flatten())
+    Y = Y.at[:,i+1].set(ynext)
+    U = U.at[:,i].set(sequence[0])
 
-
-
-
-
-
-
-
-
-
-
-
-
-# plotting
-
+# plot
 fig, ax = plt.subplots()
-ax.set_xlim(0, t)
-ax.set_ylim(jnp.min(Y), jnp.max(Y))
-line, = ax.plot([], [], lw=2)
+ax.set_xlim((0, t))
+ax.set_ylim((0, jnp.max(Y[0,:])))
+line1, = ax.plot([], [], 'g-', label='Desired Trajectory')
+line2, = ax.plot([], [], 'r-', label='Controlled Trajectory')
+ax.legend()
 
-def animate(i):
-    x = jnp.arange(i)
-    y = Y[0, :i]
-    line.set_data(x, y)
-    return line,
+# split the frames into two phases
+split_frame = len(timeArray) // 2
 
-# call the animator
-ani = ani.FuncAnimation(fig, animate,
-                              frames=t, interval=dt*1000, blit=True)
+def update(frame):
+    if frame < split_frame:
+        line1.set_data(timeArray[:frame], trajectory[:frame])
+        line2.set_data([], [])
+    else:
+        line1.set_data(timeArray, trajectory)
+        line2.set_data(timeArray[:frame - split_frame], Y[0, :frame - split_frame])
+    return line1, line2
 
-# display the animation
+# create animation
+animation = ani.FuncAnimation(fig, update, frames=len(timeArray) + split_frame, blit=True, interval=1)
+animation.save('trajectory_animation2.mp4', writer='ffmpeg', fps=60)  
+
 plt.show()
