@@ -6,9 +6,10 @@ import matplotlib.pyplot as plt
 # first define a system and its dynamics
 # we will use an inverted pendulum again
 
-#constants
+# constants
 g = 9.8 # gravity
-m = length = 1 # mass and length of bob, pendulum
+m = 1
+length = 1 # mass and length of bob, pendulum
 mu = 0.01 # friction coeff
 dt = 0.01 # step size
 nT = 1000 # time steps
@@ -16,8 +17,7 @@ maxit = 100 # allowed number of times to optimize
 lambda_factor = 10.
 lamb = 1.0 # for LM heuristic
 lamb_max = 1000.
-r = 1e-5 # input cost
-convergence_num = 1e-6 # threshold for convergence
+convergence_num = 1e-7 # threshold for convergence
 
 # now we create a function that models the pendulum
 
@@ -39,7 +39,8 @@ f = jit(f)
 
 # function that calculates immediate cost
 def run_cost(x,u):
-    l = jnp.sum(u**2) # example cost func - control is punished
+    wu = 1
+    l = wu * jnp.sum(u**2) # example cost func - control is punished
 
     wp = 1e4 # final position cost weight
     wv = 1e4 # final velocity cost weight
@@ -192,7 +193,7 @@ for k in range(maxit):
 
     # forward pass for new trajectory and control sequence
     for i in range(nT-1):
-        U_updated = U_updated.at[i].set(jnp.squeeze(U[i] + k[i] + jnp.dot(K[i], x_new - X[:,i])))# calculate new control input
+        U_updated = U_updated.at[i].set(U[i] + k[i].item() + jnp.dot(K[i], x_new - X[:,i]).item())# calculate new control input
         x_new = f(x_new,U_updated[i],dt) # find next state in order to calc next u
 
     # calculate new trajectory X
@@ -215,7 +216,7 @@ for k in range(maxit):
         lamb *= lambda_factor
         if lamb > lamb_max:
             break
-    
+
 
 # animation function
 def animate(i):
@@ -236,3 +237,4 @@ anim.save('pendulum_animation.mp4',writer = 'ffmpeg',fps=60)
 
 
 
+# typo typo tpoiy
