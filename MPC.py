@@ -172,3 +172,5 @@ animation = ani.FuncAnimation(fig, update, frames=len(timeArray) + split_frame, 
 animation.save('trajectory_animation2.mp4', writer='ffmpeg', fps=60)  
 
 plt.show()
+
+# typo typoy
