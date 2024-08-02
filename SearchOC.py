@@ -20,6 +20,8 @@ Paux = 1500 # Watts, assumed to be constant
 Trep = 0.1 # s
 Thor = 10 # s
 Shor = 100 # m
+delta_v = 1 # m/s
+delta_s = 10 # m
 
 def road_angle(s): # sinusoidal road 
     alpha = 0.1 * jnp.sin(s)
@@ -82,6 +84,8 @@ def h(s_i,s_f,v_i,v_f,ds):
 
 # define object Node() that keeps track of state values at nodes in graph
 
+# function to determine obstacle
+
 class Node():
     def __init__(self):
         self.v = 0
@@ -104,6 +108,26 @@ class Node():
         self.l_dir = 0
 
         # costs
-        self.g = 0
-        self.f = 0 # n.g + h(n)
+        self.g = float('inf')
+        self.f = float('inf') # n.g + h(n)
+
+
+
+# expansion function
+def expand(n,obstacles):
+    vi = n.v * delta_v
+    v_f = jnp.arange(0, vmax, delta_v)
+    
+
+# hybrid A* search
+grid = []
+def A_star(start, end, obstacles):
+
+    rowsTotal = len(grid[0])
+    colsTotal = len(grid[0][0])
+    timeStep = len(grid)
+
+    openList = []
+    closedList = [[[False for _ in range(colsTotal)] for _ in range(rowsTotal)] for _ in range(timeStep)]
+    nodeInfo = [[[Node() for _ in range(colsTotal)] for _ in range(rowsTotal)] for _ in range(timeStep)]
 
