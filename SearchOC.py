@@ -17,11 +17,14 @@ r_W = 0.35 # m
 Torque_max = 1000 # N*m
 vmax = 69.44 # m/s
 Paux = 1500 # Watts, assumed to be constant
-Trep = 0.1 # s
-Thor = 10 # s
-Shor = 100 # m
+Trep = 0.1 # s, how often we replan
+Thor = 10 # s, time horizon
+Shor = 100 # m, longitude horizon
 delta_v = 1 # m/s
-delta_s = 10 # m
+delta_s_grid = 10 # m, grid discretization
+delta_t_grid = 1 # s, grid discretization
+delta_t_exp = 3 * delta_t_grid # s, expansion limit 
+delta_s_exp = 3 * delta_s_grid # m, expansion limit
 
 def road_angle(s): # sinusoidal road 
     alpha = 0.1 * jnp.sin(s)
@@ -37,7 +40,7 @@ def elevation(s):
     elev = 0.1 * -jnp.cos(s)
     return elev
 
-def longitudinal_dynamics(x): # continuous longitudinal dynamics
+def longitudinal_dynamics(x): # continuous longitudinal dynamics, from https://arxiv.org/pdf/1712.03719
     s, v = x    
     alpha = road_angle(s)
     T_m = torque(v)
@@ -59,8 +62,9 @@ def rk4(f,x,dt): # numerical integration with RK4
 
 # now we should define cost function
 # calculates energy used for some step in space
+# from https://arxiv.org/pdf/1712.03719
 
-def energyCost(x,ds):
+def energyCost(x,ds): 
     s,v = x
     T_m = torque(v)
     w_m = angvel(v)
@@ -69,9 +73,12 @@ def energyCost(x,ds):
     energy = ((k * T_m) / (2 * r_W * jnp.pi) + Paux/v) * ds
     return energy
 
-# function to calculate heuristic
+def costest(v_i, v_f, t):
 
-def h(s_i,s_f,v_i,v_f,ds):
+
+# function to calculate heuristic from https://arxiv.org/pdf/1712.03719
+
+def heuristic(s_i,s_f,v_i,v_f,ds):
     E_k = m * (v_f**2 - v_i**2)/2
     E_p = m * g * (elevation(s_f) - elevation(s_i))
     s_vec = jnp.arange(s_i,s_f,ds)
@@ -113,15 +120,30 @@ class Node():
 
 
 
-# expansion function
+# expansion function, algorithm 2
 def expand(n,obstacles):
-    vi = n.v * delta_v
+    v_i = n.v * delta_v
     v_f = jnp.arange(0, vmax, delta_v)
+    n_lon = [Node() for _ in range(len(v_f))]
+    for i in range(len(n_lon)):
+        n_temp = n_lon[i]
+        n_temp.v = v_f[i]
+        n_temp.vp = v_i
+        v_avg = (n_temp.vp + n_temp.v) / 2
+        if v_avg < delta_s_exp / delta_t_exp:
+            t_interval = delta_t_exp 
+            acc = (n_temp.vp - n_temp.v) / t_interval
+        else:
+            delta_s = delta_s_exp
+            acc = (n_temp.vp**2 - n_temp.v**2) / (2 * delta_s)
+    for ns in n_lon:
+        ns.g = n.g + costtrans(v_i, v_f, t)
     
 
-# hybrid A* search
+# hybrid A* search, algorithm 1
 grid = []
-def A_star(start, end, obstacles):
+def A_star(start, end, obstacles): 
+    '''initialize starting node with g=h=f=0 somewhere'''
 
     rowsTotal = len(grid[0])
     colsTotal = len(grid[0][0])
