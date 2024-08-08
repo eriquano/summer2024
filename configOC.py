@@ -1,0 +1,20 @@
+# need vehicle constants. here i will use a tesla model S
+m = 2089 # kg
+rho = 1.225 # kg/m^3
+A_f = 2.34 # m^2
+g = 9.81 # m/s^2
+c_r = 0.01 
+c_d = 0.23
+eta = 0.9
+r_W = 0.35 # m
+Torque_max = 1000 # N*m
+vmax = 69.44 # m/s
+Paux = 1500 # Watts, assumed to be constant
+Trep = 0.1 # s, how often we replan
+Thor = 10 # s, time horizon
+Shor = 100 # m, longitude horizon
+delta_v = 1 # m/s
+delta_s_grid = 10 # m, grid discretization
+delta_t_grid = 1 # s, grid discretization
+delta_t_exp = 3 * delta_t_grid # s, expansion limit 
+delta_s_exp = 3 * delta_s_grid # m, expansion limit

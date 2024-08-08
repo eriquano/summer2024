@@ -2,6 +2,7 @@ import jax
 import jax.numpy as jnp
 from jax import jit
 
+import configOC 
 # start by defining a function to propagate vehicle dynamics (longitudinal)
 # vehicle model and cost function taken from https://arxiv.org/pdf/1712.03719
 
@@ -95,18 +96,19 @@ def heuristic(s_i,s_f,v_i,v_f,ds):
 
 class Node():
     def __init__(self):
-        self.v = 0
-        self.t = 0
-        self.s = 0
-        self.l = 0
-
+        # node values ROUNDED TO GRID
+        self.v = 0 # velocity
+        self.t = 0 # time
+        self.s = 0 # longitudinal dist
+        self.l = 0 # lateral dist
+                   
         # parent values
-        self.vp = 0
+        self.vp = 0 
         self.tp = 0
         self.sp = 0
         self.lp = 0
 
-        # remainder values
+        # remainder values (offset from grid)
         self.tr = 0
         self.sr = 0
         self.lr = 0
@@ -115,8 +117,8 @@ class Node():
         self.l_dir = 0
 
         # costs
-        self.g = float('inf')
-        self.f = float('inf') # n.g + h(n)
+        self.g = float('inf') # cost-to-come
+        self.f = float('inf') # n.g + heuristic(n)
 
 
 
@@ -124,18 +126,36 @@ class Node():
 def expand(n,obstacles):
     v_i = n.v * delta_v
     v_f = jnp.arange(0, vmax, delta_v)
-    n_lon = [Node() for _ in range(len(v_f))]
+    n_lon = [Node() for _ in range(len(v_f))] # generate blank child nodes for each v_f
+    # calculate information for each child (s,v,t,remainders)
     for i in range(len(n_lon)):
         n_temp = n_lon[i]
         n_temp.v = v_f[i]
         n_temp.vp = v_i
         v_avg = (n_temp.vp + n_temp.v) / 2
-        if v_avg < delta_s_exp / delta_t_exp:
+        if v_avg < delta_s_exp / delta_t_exp: # node is at time expansion limit
             t_interval = delta_t_exp 
             acc = (n_temp.vp - n_temp.v) / t_interval
-        else:
-            delta_s = delta_s_exp
-            acc = (n_temp.vp**2 - n_temp.v**2) / (2 * delta_s)
+            s_interval = (n_temp.vp**2 - n_temp.v**2) / (2 * acc)
+        else: # node is at longitudinal distance expansion limit
+            s_interval = delta_s_exp
+            acc = (n_temp.vp**2 - n_temp.v**2) / (2 * s_interval)
+            t_interval = (n_temp.vp - n_temp.v) / acc
+        # compute child s, sr values
+        child_s = s_interval + n.sr
+        child_s = child_s/delta_s_grid
+        floor_child_s = jnp.floor(child_s)
+        n_temp.s = floor_child_s + n.s
+        n_temp.sr = child_s - floor_child_s
+        # compute child t, tr values
+        child_t = t_interval + n.tr
+        child_t = child_t/delta_t_grid
+        floor_child_t = jnp.floor(child_t)
+        n_temp.t = floor_child_t + n.t
+        n_temp.tr = child_t - floor_child_t       
+
+        # TODO: acceleration checking, costs for long. motion, as well as lateral variants
+
     for ns in n_lon:
         ns.g = n.g + costtrans(v_i, v_f, t)
     
