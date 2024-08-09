@@ -17,6 +17,8 @@ eta = 0.9
 r_W = 0.35 # m
 Torque_max = 1000 # N*m
 vmax = 69.44 # m/s
+accmax = 8.65 # m/s^2
+accmin = -3 # m/s^2
 Paux = 1500 # Watts, assumed to be constant
 Trep = 0.1 # s, how often we replan
 Thor = 10 # s, time horizon
@@ -26,6 +28,8 @@ delta_s_grid = 10 # m, grid discretization
 delta_t_grid = 1 # s, grid discretization
 delta_t_exp = 3 * delta_t_grid # s, expansion limit 
 delta_s_exp = 3 * delta_s_grid # m, expansion limit
+
+v_opt = (Paux/(rho*c_d*A_f))**(1/3) # optimal cruising velocity (17)
 
 def road_angle(s): # sinusoidal road 
     alpha = 0.1 * jnp.sin(s)
@@ -65,17 +69,29 @@ def rk4(f,x,dt): # numerical integration with RK4
 # calculates energy used for some step in space
 # from https://arxiv.org/pdf/1712.03719
 
-def energyCost(x,ds): 
-    s,v = x
-    T_m = torque(v)
-    w_m = angvel(v)
-    k = (2 * r_W * jnp.pi * w_m) / v
+# def energyCost(): 
+#     s,v = x
+#     T_m = torque(v)
+#     w_m = angvel(v)
+#     k = (2 * r_W * jnp.pi * w_m) / v
 
-    energy = ((k * T_m) / (2 * r_W * jnp.pi) + Paux/v) * ds
-    return energy
+#     energy = ((k * T_m) / (2 * r_W * jnp.pi) + Paux/v) * ds
+#     return energy 
 
-def costest(v_i, v_f, t):
+def costest(s1, v1, s2, v2):
+    #kinetic and potential energy diff
+    E_k = m * (v2**2 - v1**2)/2
+    E_p = m * g * (elevation(s2) - elevation(s1))
+    est = E_k + E_p
 
+    #rolling energy
+    ds = 0.01
+    s_vec = jnp.arange(s1,s2,ds)
+    est += c_r * m * g * jnp.sum(jnp.cos(road_angle(s_vec)) * ds)
+
+
+    est += (s2-s1) * ((.5 * rho * c_d * A_f) * v_opt**2 + Paux/v_opt)
+    return est
 
 # function to calculate heuristic from https://arxiv.org/pdf/1712.03719
 
@@ -127,6 +143,7 @@ def expand(n,obstacles):
     v_i = n.v * delta_v
     v_f = jnp.arange(0, vmax, delta_v)
     n_lon = [Node() for _ in range(len(v_f))] # generate blank child nodes for each v_f
+   
     # calculate information for each child (s,v,t,remainders)
     for i in range(len(n_lon)):
         n_temp = n_lon[i]
@@ -141,6 +158,12 @@ def expand(n,obstacles):
             s_interval = delta_s_exp
             acc = (n_temp.vp**2 - n_temp.v**2) / (2 * s_interval)
             t_interval = (n_temp.vp - n_temp.v) / acc
+
+        # acceleration checking
+        if (acc > accmax) or (acc < accmin):
+            n_lon.pop(i)
+            continue
+
         # compute child s, sr values
         child_s = s_interval + n.sr
         child_s = child_s/delta_s_grid
@@ -154,10 +177,15 @@ def expand(n,obstacles):
         n_temp.t = floor_child_t + n.t
         n_temp.tr = child_t - floor_child_t       
 
-        # TODO: acceleration checking, costs for long. motion, as well as lateral variants
+        # TODO: figure out what the "final state" is for heuristi function, lateral motion
 
     for ns in n_lon:
-        ns.g = n.g + costtrans(v_i, v_f, t)
+        ns.g = n.g + costest(n.s+n.sr, v_i, ns.s+ns.r, ns.v+ns.vr)
+        ns.f = ns.g #fix
+    # lateral motion variants
+    if jnp.mod(n.l,1) != 1: # lane change is happening
+        for ns in n_lon:
+            ns.
     
 
 # hybrid A* search, algorithm 1
