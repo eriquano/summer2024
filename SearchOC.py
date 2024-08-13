@@ -28,6 +28,8 @@ delta_s_grid = 10 # m, grid discretization
 delta_t_grid = 1 # s, grid discretization
 delta_t_exp = 3 * delta_t_grid # s, expansion limit 
 delta_s_exp = 3 * delta_s_grid # m, expansion limit
+T_LC = 4 # s, lane change time
+N_l = 3 # number of lanes
 
 v_opt = (Paux/(rho*c_d*A_f))**(1/3) # optimal cruising velocity (17)
 
@@ -109,6 +111,13 @@ def heuristic(s_i,s_f,v_i,v_f,ds):
 # define object Node() that keeps track of state values at nodes in graph
 
 # function to determine obstacle
+def collision_check(nprime, obstacles):
+    n_collision = jnp.copy(nprime)
+    for n in nprime:
+        for obs in obstacles:
+            if n.s == obs.s and n.l == obs.l:
+                n_collision.remove(n)
+    return n_collision
 
 class Node():
     def __init__(self):
@@ -136,6 +145,31 @@ class Node():
         self.g = float('inf') # cost-to-come
         self.f = float('inf') # n.g + heuristic(n)
 
+        #temporary traveling value
+        self.t_interval = 0
+    def __eq__(self, other):
+        if isinstance(other, Node):
+            return (self.v == other.v and self.t == other.t and
+                    self.s == other.s and self.l == other.l and
+                    self.vp == other.vp and self.tp == other.tp and
+                    self.sp == other.sp and self.lp == other.lp and
+                    self.tr == other.tr and self.sr == other.sr and
+                    self.lr == other.lr and self.l_dir == other.l_dir and
+                    self.g == other.g and self.f == other.f and
+                    self.t_interval == other.t_interval)
+        return False
+
+    def __hash__(self):
+        return hash((self.v, self.t, self.s, self.l, self.vp, self.tp,
+                     self.sp, self.lp, self.tr, self.sr, self.lr, self.l_dir,
+                     self.g, self.f, self.t_interval))
+
+    def __repr__(self):
+        return (f"Node(v={self.v}, t={self.t}, s={self.s}, l={self.l}, "
+                f"vp={self.vp}, tp={self.tp}, sp={self.sp}, lp={self.lp}, "
+                f"tr={self.tr}, sr={self.sr}, lr={self.lr}, l_dir={self.l_dir}, "
+                f"g={self.g}, f={self.f}, t_interval={self.t_interval})")
+
 
 
 # expansion function, algorithm 2
@@ -159,6 +193,8 @@ def expand(n,obstacles):
             acc = (n_temp.vp**2 - n_temp.v**2) / (2 * s_interval)
             t_interval = (n_temp.vp - n_temp.v) / acc
 
+        n_temp.t_interval = t_interval
+
         # acceleration checking
         if (acc > accmax) or (acc < accmin):
             n_lon.pop(i)
@@ -178,15 +214,55 @@ def expand(n,obstacles):
         n_temp.tr = child_t - floor_child_t       
 
         # TODO: figure out what the "final state" is for heuristi function, lateral motion
-
+    nprime = jnp.copy(n_lon)
     for ns in n_lon:
         ns.g = n.g + costest(n.s+n.sr, v_i, ns.s+ns.r, ns.v+ns.vr)
         ns.f = ns.g #fix
     # lateral motion variants
     if jnp.mod(n.l,1) != 1: # lane change is happening
-        for ns in n_lon:
-            ns.
-    
+        for ns in nprime:
+            LC_modifier = ns.t_interval/T_LC
+            # progress current lane changing maneuver
+            if ns.l_dir == "L":
+                temp = ns.l + ns.lr
+                temp = temp - LC_modifier
+                ns.l = jnp.floor(temp)
+                ns.lr = temp - ns.l
+            elif ns.l_dir == "R":
+                temp = ns.l + ns.lr
+                temp = temp + LC_modifier
+                ns.l = jnp.floor(temp)
+                ns.lr = temp - ns.l
+            ns.g = ns.g + 1 # cost of lane change (fix)
+            ns.f = ns.f # + h(s,v) fix
+    else: # create lane change variants
+        if n.l > 1:
+            nr = jnp.copy(n_lon)
+            for ns in nr:
+                ns.l_dir = "R"
+                temp = ns.l + ns.lr
+                temp = temp + LC_modifier
+                ns.l = jnp.floor(temp)
+                ns.lr = temp - ns.l
+                ns.g = ns.g + 1 # cost of lane change (fix)
+                ns.f = ns.f # + h(s,v) fix              
+            nprime_set = set(nprime)
+            nr_set = set(nr)
+            nprime = list(nprime_set.union(nr_set))
+        if n.l < N_l:
+            nl = jnp.copy(n_lon)
+            for ns in nl:
+                ns.l_dir = "L"
+                temp = ns.l + ns.lr
+                temp = temp - LC_modifier
+                ns.l = jnp.floor(temp)
+                ns.lr = temp - ns.l
+                ns.g = ns.g + 1 # cost of lane change (fix)
+                ns.f = ns.f # + h(s,v) fix
+            nprime_set = set(nprime)
+            nl_set = set(nl)
+            nprime = list(nprime_set.union(nl_set))
+    n_collision = collision_check(nprime, obstacles)
 
 # hybrid A* search, algorithm 1
 grid = []
